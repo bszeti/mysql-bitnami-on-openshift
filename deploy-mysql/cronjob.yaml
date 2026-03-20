@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-mysql
+spec:
+  schedule: "*/1 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: main
+              image: quay.io/bszeti/mysql:9.6
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -eo pipefail
+                  DATABASES=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SHOW DATABASES WHERE \`Database\` NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys');")
+                  echo DATABASES: $DATABASES
+                  mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --routines --events --databases $DATABASES > /tmp/backup-$(date +%Y-%m-%d-%H-%M-%S).sql #| gzip > backup-$(date +%Y-%m-%d-%H-%M-%S).sql.gz
+                  ls -l /tmp/
+                  cat /tmp/backup-*.sql
+              env:
+                - name: MYSQL_ROOT_PASSWORD_FILE
+                  value: /opt/iamguarded/mysql/secrets/mysql-root-password
+                - name: MYSQL_SERVICE
+                  value: test-mysql-secondary
+              volumeMounts:
+                - name: mysql-credentials
+                  mountPath: /opt/iamguarded/mysql/secrets/                  
+          volumes:
+            - name: mysql-credentials
+              secret:
+                secretName: test-mysql
+                items:
+                  - key: mysql-root-password
+                    path: mysql-root-password       
+          restartPolicy: Never
