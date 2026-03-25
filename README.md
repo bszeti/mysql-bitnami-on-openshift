@@ -19,6 +19,7 @@ oc logs -f test-mysql-primary-0
 # With Sidecar
 helm upgrade -i -n mysql test oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-sidecar.yaml
 oc logs -f test-mysql-secondary-0 -c backup-mysql-bin
+oc rsh -c backup-mysql-bin test-mysql-secondary-0
 ```
 
 Connect with mysql:

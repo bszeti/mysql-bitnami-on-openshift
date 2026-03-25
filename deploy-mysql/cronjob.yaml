@@ -9,7 +9,7 @@ spec:
       template:
         spec:
           containers:
-            - name: main
+            - name: mysqldump
               image: quay.io/bszeti/mysql:9.6
               command:
                 - /bin/bash
@@ -18,22 +18,64 @@ spec:
                   set -eo pipefail
                   DATABASES=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SHOW DATABASES WHERE \`Database\` NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys');")
                   echo DATABASES: $DATABASES
-                  mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --routines --events --databases $DATABASES > /tmp/backup-$(date +%Y-%m-%d-%H-%M-%S).sql #| gzip > backup-$(date +%Y-%m-%d-%H-%M-%S).sql.gz
-                  ls -l /tmp/
-                  cat /tmp/backup-*.sql
+                  mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --routines --events --databases $DATABASES | gzip > /tmp/mysqldump-$(date +%Y-%m-%d-%H-%M-%S).sql.gz #> /tmp/backup-$(date +%Y-%m-%d-%H-%M-%S).sql 
+                  
+                  # Upload to gcloud storage
+                  mv /tmp/mysqldump-*.sql.gz /backup/done/
               env:
                 - name: MYSQL_ROOT_PASSWORD_FILE
-                  value: /opt/iamguarded/mysql/secrets/mysql-root-password
+                  value: /mysql-credentials/mysql-root-password
                 - name: MYSQL_SERVICE
                   value: test-mysql-secondary
               volumeMounts:
                 - name: mysql-credentials
-                  mountPath: /opt/iamguarded/mysql/secrets/                  
+                  mountPath: /mysql-credentials             
+                - name: shared-volume
+                  mountPath: /backup/done
+                  
+            - name: upload
+              image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -eo pipefail
+                  echo "Starting upload sidecar"
+
+                  gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json --project=$GCP_PROJECT_ID
+
+                  cd /backup/done
+                  while true; do
+                    UPLOAD_FILES=$(find ./ -type f)
+                    for file in $UPLOAD_FILES; do
+                      # Upload and remove file
+                      gcloud storage cp $file $BUCKET_PATH/mysqldump/ && rm -f $file
+                    done
+                    sleep 5
+                  done
+              env:
+                - name: CLOUDSDK_CONFIG
+                  # Needs to be a writable directory
+                  value: /tmp/config          
+                - name: GCP_PROJECT_ID
+                  value: "rhpds-345620"
+                - name: BUCKET_PATH
+                  value: "gs://my-bucket-n9dps/mysql-test"        
+              volumeMounts:
+                - name: gcp-credentials
+                  mountPath: /gcp-credentials             
+                - name: shared-volume
+                  mountPath: /backup/done            
           volumes:
             - name: mysql-credentials
               secret:
                 secretName: test-mysql
                 items:
                   - key: mysql-root-password
-                    path: mysql-root-password       
+                    path: mysql-root-password
+            - name: gcp-credentials
+              secret:
+                secretName: gcp-credentials                    
+            - name: shared-volume
+              emptyDir: {}
           restartPolicy: Never
