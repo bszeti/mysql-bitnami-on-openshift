@@ -171,7 +171,6 @@ secondary:
         - name: mysql-credentials
           mountPath: /mysql-credentials
     - name: backup-mysql-bin
-      # image: quay.io/bszeti/mysql:9.6
       image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
       command:
         - /bin/bash
@@ -186,9 +185,9 @@ secondary:
             echo "Waiting for auto.cnf to be created"
             sleep 5
           done
-          SERVER_UUID_DATE=$(date -d "@$(stat -c %W /data/data/auto.cnf)" +%Y-%m-%d-%H-%M-%S)
+          # SERVER_UUID_DATE=$(date -d "@$(stat -c %W /data/data/auto.cnf)" +%Y-%m-%d-%H-%M-%S)
           SERVER_UUID=$(grep -oP 'server-uuid=\K[^ ]+' /data/data/auto.cnf)
-          BUCKET_PATH_SERVER=$BUCKET_PATH/$SERVER_UUID_DATE-$SERVER_UUID
+          BUCKET_PATH_SERVER=$BUCKET_PATH/$SERVER_UUID
           echo "BUCKET_PATH_SERVER:" $BUCKET_PATH_SERVER
 
           gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json --project=$GCP_PROJECT_ID
@@ -196,14 +195,13 @@ secondary:
           cd /data/data
           while true; do
             # Search for mysql-bin.[index] files in /data/data, exclude the last one
-            BIN_FILES=$(find ./ -name "mysql-bin.[0-9]*" -type f | sort -r | tail -n +2 | sort )
+            BIN_FILES=$(find * -name "mysql-bin.[0-9]*" -type f | sort -r | tail -n +2 | sort )
             # Search for existing mysql-bin files in the bucket
             BIN_FILES_IN_BUCKET=$(gcloud storage ls "$BUCKET_PATH_SERVER/mysql-bin/*" 2>/dev/null || true)
             # echo "BIN_FILES:" $BIN_FILES
             # echo "BIN_FILES_IN_BUCKET:" $BIN_FILES_IN_BUCKET
             for file in $BIN_FILES; do
-              filename=$(basename $file)
-              if ! echo $BIN_FILES_IN_BUCKET | grep -qw "$filename"; then
+              if ! echo $BIN_FILES_IN_BUCKET | grep -qw "$file"; then
                 # Uploading file to bucket
                 gcloud storage cp $file $BUCKET_PATH_SERVER/mysql-bin/
               fi
@@ -215,7 +213,7 @@ secondary:
           # Needs to be a writable directory
           value: /tmp/config
         - name: MYSQL_BIN_UPLOAD_PERIOD
-          value: "20"
+          value: "10"
         - name: GCP_PROJECT_ID
           # value: "my-gcp-project"
           value: "rhpds-345620"
