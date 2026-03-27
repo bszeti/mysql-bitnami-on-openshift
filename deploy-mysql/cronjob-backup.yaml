@@ -18,6 +18,8 @@ spec:
                 - -c
                 - |
                   set -eo pipefail
+                  # Create a file to indicate that the container has terminated
+                  trap 'touch $SHARED_VOLUME/terminated' ERR
 
                   # Get server-uuid
                   SERVER_UUID=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SELECT @@global.server_uuid;")
@@ -28,21 +30,23 @@ spec:
                   # Backup non-system databases
                   DATABASES=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SHOW DATABASES WHERE \`Database\` NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys');")
                   echo DATABASES: $DATABASES
-                  mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --set-gtid-purged=OFF --routines --events --databases $DATABASES | gzip > $MYSQL_DUMP_DIR/mysqldump-$(date +%Y-%m-%d-%H-%M-%S).sql.gz 
+                  mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --set-gtid-purged=OFF --routines --events --databases $DATABASES | gzip > $MYSQL_DUMP_DIR/mysqldump-$(date +%Y%m%d%H%M%S).sql.gz 
                   
                   # Move to upload directory
-                  mv /tmp/$SERVER_UUID /backup/upload/ 
+                  mv /tmp/$SERVER_UUID $SHARED_VOLUME/ 
               env:
                 - name: MYSQL_ROOT_PASSWORD_FILE
                   value: /mysql-credentials/mysql-root-password
                 - name: MYSQL_SERVICE
                   value: test-mysql-secondary
+                - name: SHARED_VOLUME
+                  value: /backup/upload
               volumeMounts:
                 - name: mysql-credentials
-                  mountPath: /mysql-credentials             
+                  mountPath: /mysql-credentials
                 - name: shared-volume
                   mountPath: /backup/upload
-                  
+                 
             - name: upload
               image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
               command:
@@ -51,17 +55,16 @@ spec:
                 - |
                   set -eo pipefail
                   echo "Starting upload container"
-                  UPLOAD_DIR=/backup/upload
+                  gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json --project=$GCP_PROJECT_ID
 
-                  # TODO: Job can get stuck waiting here even if the other container failed. Should use once container only.
-                  while [ -z "$(ls -A $UPLOAD_DIR)" ]; do
+                  while [ -z "$(ls -A $SHARED_VOLUME)" ]; do
                     echo "Waiting for upload files to be created"
                     sleep 5
                   done
+                  [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
                   
-                  gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json --project=$GCP_PROJECT_ID
-                  gcloud storage rsync -r $UPLOAD_DIR $BUCKET_PATH
-                  
+                  # Upload files to bucket
+                  gcloud storage rsync -r $SHARED_VOLUME $BUCKET_PATH
               env:
                 - name: CLOUDSDK_CONFIG
                   # Needs to be a writable directory
@@ -69,12 +72,15 @@ spec:
                 - name: GCP_PROJECT_ID
                   value: "rhpds-345620"
                 - name: BUCKET_PATH
-                  value: "gs://my-bucket-n9dps/mysql-test"        
+                  value: "gs://my-bucket-n9dps/mysql-test"  
+                - name: SHARED_VOLUME
+                  value: /backup/upload
               volumeMounts:
                 - name: gcp-credentials
                   mountPath: /gcp-credentials             
                 - name: shared-volume
-                  mountPath: /backup/upload            
+                  mountPath: /backup/upload    
+                     
           volumes:
             - name: mysql-credentials
               secret:

@@ -5,6 +5,8 @@ global:
     # Allow non-original image
     allowInsecureImages: true
 auth:
+  # Create a database during initialisation
+  createDatabase: true # default
   database: db1
   rootPassword: myrootsecret
   username: myuser
@@ -47,6 +49,7 @@ primary:
     bind-address=*
     pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
     log-error=/opt/bitnami/mysql/logs/mysqld.log
+    # The default "UTF" in Helm chart's values.yaml causes a problem with v9.6, skip or use UTF8MB4 instead
     character-set-server=UTF8MB4
     slow_query_log=0
     long_query_time=10.0
@@ -69,24 +72,26 @@ primary:
     socket=/opt/bitnami/mysql/tmp/mysql.sock
     pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
 initdbScripts:
-  init.sh: |
-    [[ "$DB_REPLICATION_MODE" = "slave" ]] && warn "Init script is not run on secondary node. Skipping..." && return
-    echo "Creating databases and tables on primary node."
-    mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "
-      CREATE DATABASE db2; 
-      GRANT ALL PRIVILEGES ON db2.* TO 'myuser'@'%';
-      FLUSH PRIVILEGES;
-      CREATE TABLE db1.messages (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        created_at DATETIME,
-        message VARCHAR(1000)
-      );
-      CREATE TABLE db2.messages (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        created_at DATETIME,
-        message VARCHAR(1000)
-      );
-    "
+  init.sh: |  
+    if [[ ! "$DB_REPLICATION_MODE" = "slave" ]]; then
+      mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "
+        CREATE DATABASE db2; 
+        GRANT ALL PRIVILEGES ON db2.* TO 'myuser'@'%';
+        FLUSH PRIVILEGES;
+        CREATE TABLE db1.messages (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          created_at DATETIME,
+          message VARCHAR(1000)
+        );
+        CREATE TABLE db2.messages (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          created_at DATETIME,
+          message VARCHAR(1000)
+        );
+      "
+    else
+      warn "Init script is not run on secondary node. Skipping..."
+    fi
 #   init.sql: |
 #     -- Broken with MySQL v9? mysql -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) <<<"source /docker-entrypoint-initdb.d/init.sql;"
 
@@ -124,6 +129,7 @@ secondary:
     bind-address=*
     pid-file=/opt/bitnami/mysql/tmp/mysqld.pid
     log-error=/opt/bitnami/mysql/logs/mysqld.log
+    # The default "UTF" in Helm chart's values.yaml causes a problem with v9.6, skip or use UTF8MB4 instead
     character-set-server=UTF8MB4
     slow_query_log=0
     long_query_time=10.0
