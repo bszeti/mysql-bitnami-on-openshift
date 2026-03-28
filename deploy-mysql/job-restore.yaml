@@ -1,0 +1,152 @@
+# Kubernetes Job to restore databases from backup
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore
+spec:
+  # Don't retry new Pod on failure
+  backoffLimit: 0
+  activeDeadlineSeconds: 14400 # Job deadline 4 hours
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        # Container to download backup from bucket
+        - name: download
+          image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eo pipefail
+              # Create a file to indicate any error to other container
+              trap 'touch $SHARED_VOLUME/terminated' ERR
+
+              echo "Downloading backup from bucket"
+              # Download mysql dump
+              DOWNLOAD_DIR_DUMP=/tmp/mysql-dump/
+              mkdir -p $DOWNLOAD_DIR_DUMP
+              gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json
+              gcloud storage cp $MYSQL_DUMP_BUCKET_PATH $DOWNLOAD_DIR_DUMP
+              
+              # Find SOURCE_LOG_FILE and SOURCE_LOG_POS in mysqldump
+              change_replication_line=$(gzip -d --stdout $DOWNLOAD_DIR_DUMP/$(basename $MYSQL_DUMP_BUCKET_PATH) | grep -m 1 "CHANGE REPLICATION SOURCE TO")
+              echo $change_replication_line # CHANGE REPLICATION SOURCE TO SOURCE_LOG_FILE='mysql-bin.000589', SOURCE_LOG_POS=238;
+              regexp="^.*SOURCE_LOG_FILE='([^']+).*SOURCE_LOG_POS=([^;]+)"
+              if [[ $change_replication_line =~ $regexp ]]; then
+                  # Assign matches to your variables
+                  SOURCE_LOG_FILE="${BASH_REMATCH[1]}"
+                  SOURCE_LOG_POS="${BASH_REMATCH[2]}"
+                  echo -e "SOURCE_LOG_FILE=$SOURCE_LOG_FILE\nSOURCE_LOG_POS=$SOURCE_LOG_POS" | tee $DOWNLOAD_DIR_DUMP/source_log.env
+              else
+                echo "Can't find SOURCE_LOG_FILE or SOURCE_LOG_POS in mysqldump line: $change_replication_line"
+                exit 1
+              fi
+              # Copy dump file to be processed by mysql container
+              mv $DOWNLOAD_DIR_DUMP $SHARED_VOLUME
+
+              # Download mysql bin files required for restore (from given bucket or relative to dump path)
+              MYSQL_BIN_BUCKET_PATH=${MYSQL_BIN_BUCKET_PATH:=${MYSQL_DUMP_BUCKET_PATH%/*/*}/mysql-bin}
+              bin_files_in_bucket=$(gcloud storage ls "$MYSQL_BIN_BUCKET_PATH/*")
+              echo Bin files in bucket: $bin_files_in_bucket
+              bin_files_min_index=$((10#${SOURCE_LOG_FILE##*.}))
+              echo "Bin files min index: $bin_files_min_index"
+              bin_files_required=()
+              for binfile in $bin_files_in_bucket; do
+                # Extract the extension, remove leading zeros 
+                index=$((10#${binfile##*.}))
+                if (( index >= bin_files_min_index )); then
+                  bin_files_required+=("$binfile")
+                fi
+              done
+              echo -n "Bin files required:"; printf '%s ' "${bin_files_required[@]}"; echo
+
+              DOWNLOAD_DIR_BIN=/tmp/mysql-bin
+              mkdir -p $DOWNLOAD_DIR_BIN
+              gcloud storage cp ${bin_files_required[*]} $DOWNLOAD_DIR_BIN
+              # Copy bin files to be processed by mysql container
+              mv $DOWNLOAD_DIR_BIN $SHARED_VOLUME
+          env:
+            - name: CLOUDSDK_CONFIG
+              # Needs to be a writable directory
+              value: /tmp/config
+            - name: GCP_PROJECT_ID
+              # value: "my-gcp-project"
+              value: "rhpds-345620"
+            - name: MYSQL_DUMP_BUCKET_PATH
+              value: "gs://my-bucket-n9dps/mysql-test/b73ee744-2a27-11f1-9dc0-0a580a830093/mysql-dump/mysqldump-20260328181000.sql.gz"
+            - name: SHARED_VOLUME
+              value: /shared-volume
+          volumeMounts:
+            - name: gcp-credentials
+              mountPath: /gcp-credentials
+            - name: shared-volume
+              mountPath: /shared-volume
+
+        - name: restore
+          image: quay.io/bszeti/mysql:9.6
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -eo pipefail
+              
+              echo "Waiting for mysql dump file..."
+              until [ -d "$SHARED_VOLUME/mysql-dump" ]; do
+                  sleep 5
+                  [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
+              done
+              
+              # Load mysql dump. If filename ends with .gz, decompress, otherwise load file directly
+              dump_file=$(find $SHARED_VOLUME/mysql-dump -type f -name "*.sql*")
+              echo "Loading dump file: $dump_file"
+              if [[ $dump_file == *.gz ]]; then
+                gzip -d --stdout $dump_file | mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE)
+              else
+                mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) < $dump_file
+              fi
+              echo "Databases after loading mysql dump file:" $(mysql -sN -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) <<< "SHOW DATABASES;")
+              
+              echo "Waiting for mysql bin files..."
+              until [ -d "$SHARED_VOLUME/mysql-bin" ]; do
+                  sleep 5
+                  [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
+              done
+              
+              # Load mysql bin files, optianally until $SOURCE_LOG_STOP_DATETIME
+              source $SHARED_VOLUME/mysql-dump/source_log.env
+              bin_files=($(find $SHARED_VOLUME/mysql-bin -type f | sort))
+              echo -n "Loading bin files${SOURCE_LOG_STOP_DATETIME:+ (until time $SOURCE_LOG_STOP_DATETIME)}: "; printf '%s ' "${bin_files[@]}"; echo
+              mysqlbinlog --no-defaults ${bin_files[@]} --start-position $SOURCE_LOG_POS ${SOURCE_LOG_STOP_DATETIME:+--stop-datetime "$SOURCE_LOG_STOP_DATETIME"} \
+                | tee >(grep "Start: binlog" >/tmp/mysqlbinlog.log) \
+                | mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE)
+              cat /tmp/mysqlbinlog.log
+              echo "Done"
+          env:
+            - name: MYSQL_SERVICE
+              value: restore-mysql-primary.mysql.svc
+            - name: MYSQL_ROOT_PASSWORD_FILE
+              value: /mysql-credentials/mysql-root-password
+            - name: SHARED_VOLUME
+              value: /shared-volume
+            # Optional: set restore point in time
+            # - name: SOURCE_LOG_STOP_DATETIME
+            #   value: "2026-03-28 19:00:00"
+          volumeMounts:
+            - name: mysql-credentials
+              mountPath: /mysql-credentials
+            - name: shared-volume
+              mountPath: /shared-volume
+
+      volumes:
+        - name: mysql-credentials
+          secret:
+            secretName: restore-mysql
+            items:
+              - key: mysql-root-password
+                path: mysql-root-password
+        - name: gcp-credentials
+          secret:
+            secretName: gcp-credentials
+        - name: shared-volume
+          emptyDir: {}

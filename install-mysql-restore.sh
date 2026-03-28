@@ -8,7 +8,11 @@ oc apply -f deploy-mysql/scripts-sidecars.yaml
 helm upgrade -i restore oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-restore.yaml
 
 # Create job to restore databases from backup
-# TODO
+# oc delete -f deploy-mysql/job-restore.yaml
+oc apply -f deploy-mysql/job-restore.yaml
+oc wait --for=jsonpath='{.status.ready}'=1 job/restore
+oc logs -f -c download job/restore
+oc logs -f -c restore job/restore
 
 # Create CronJob for mysqldump backups
 oc apply -f deploy-mysql/cronjob-backup.yaml

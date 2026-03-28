@@ -8,9 +8,9 @@ oc apply -f deploy-mysql/scripts-sidecars.yaml
 helm upgrade -i test oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-sidecar.yaml
 
 # Create CronJob for mysqldump backups
-oc apply -f deploy-mysql/cronjob-backup.yaml
-
-
+oc apply -f deploy-mysql/cronjob-backup-mysqldump.yaml
+# Force run
+oc create job manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump
 
 # # Uninstall
 # helm uninstall -n mysql test

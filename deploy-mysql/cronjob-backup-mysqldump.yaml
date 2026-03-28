@@ -1,15 +1,19 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: backup-mysql
+  name: backup-mysqldump
 spec:
   schedule: "*/5 * * * *"
   concurrencyPolicy: Forbid
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # Don't retry new Pod on failure
+      backoffLimit: 0
+      activeDeadlineSeconds: 14400 # Job deadline 4 hours
       template:
         spec:
+          restartPolicy: Never        
           containers:
             - name: mysqldump
               image: quay.io/bszeti/mysql:9.6
@@ -93,7 +97,5 @@ spec:
                 secretName: gcp-credentials                    
             - name: shared-volume
               emptyDir: {}
-          activeDeadlineSeconds: 3600 # Job deadline 1 hours
-          restartPolicy: Never
-      # Don't retry new Pod on failure
-      backoffLimit: 0
+
+      
