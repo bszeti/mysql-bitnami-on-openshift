@@ -8,11 +8,14 @@ oc apply -f deploy-mysql/scripts-sidecars.yaml
 helm upgrade -i restore oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-restore.yaml
 
 # Create job to restore databases from backup
-# oc delete -f deploy-mysql/job-restore.yaml
-oc apply -f deploy-mysql/job-restore.yaml
+oc delete -f deploy-mysql/job-restore.yaml; oc create -f deploy-mysql/job-restore.yaml
 oc wait --for=jsonpath='{.status.ready}'=1 job/restore
 oc logs -f -c download job/restore
 oc logs -f -c restore job/restore
+
+# Verify restored db
+oc exec -c mysql restore-mysql-secondary-0 -- /bin/bash -c 'mysql -u root -p$(cat $MYSQL_MASTER_ROOT_PASSWORD_FILE) --vertical <<<"SHOW REPLICA STATUS;"'
+oc exec -c mysql restore-mysql-secondary-0 -- /bin/bash -c 'mysql -u root -p$(cat $MYSQL_MASTER_ROOT_PASSWORD_FILE) db1 <<<"SELECT count(*) FROM messages; SELECT * FROM messages ORDER BY created_at DESC LIMIT 1;"'
 
 # Create CronJob for mysqldump backups
 oc apply -f deploy-mysql/cronjob-backup.yaml

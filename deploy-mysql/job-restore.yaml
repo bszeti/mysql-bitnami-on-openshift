@@ -16,7 +16,7 @@ spec:
           image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
           command:
             - /bin/bash
-            - -c
+            - -xc
             - |
               set -eo pipefail
               # Create a file to indicate any error to other container
@@ -29,9 +29,10 @@ spec:
               gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json
               gcloud storage cp $MYSQL_DUMP_BUCKET_URL $DOWNLOAD_DIR_DUMP
               
-              # Find SOURCE_LOG_FILE and SOURCE_LOG_POS in mysqldump
-              change_replication_line=$(gzip -d --stdout $DOWNLOAD_DIR_DUMP/$(basename $MYSQL_DUMP_BUCKET_URL) | grep -m 1 "CHANGE REPLICATION SOURCE TO")
-              echo $change_replication_line # CHANGE REPLICATION SOURCE TO SOURCE_LOG_FILE='mysql-bin.000589', SOURCE_LOG_POS=238;
+              # Find SOURCE_LOG_FILE and SOURCE_LOG_POS in mysqldump. Stop at first match
+              change_replication_line=$(gzip -d --stdout $DOWNLOAD_DIR_DUMP/$(basename $MYSQL_DUMP_BUCKET_URL) | grep -m 1 "CHANGE REPLICATION SOURCE TO" || true)
+              # -- CHANGE REPLICATION SOURCE TO SOURCE_LOG_FILE='mysql-bin.000589', SOURCE_LOG_POS=238;
+              echo change_replication_line: $change_replication_line
               regexp="^.*SOURCE_LOG_FILE='([^']+).*SOURCE_LOG_POS=([^;]+)"
               if [[ $change_replication_line =~ $regexp ]]; then
                   # Assign matches to your variables
@@ -74,7 +75,7 @@ spec:
               # value: "my-gcp-project"
               value: "rhpds-345620"
             - name: MYSQL_DUMP_BUCKET_URL
-              value: "gs://my-bucket-n9dps/mysql-test/b73ee744-2a27-11f1-9dc0-0a580a830093/mysql-dump/mysqldump-20260328181000.sql.gz"
+              value: "gs://my-bucket-n9dps/mysql-test/1d151734-2c6e-11f1-ac52-0a580a83000d/mysql-dump/mysqldump-20260330193000.sql.gz"
             - name: SHARED_VOLUME
               value: /shared-volume
           volumeMounts:
@@ -130,8 +131,8 @@ spec:
             - name: SHARED_VOLUME
               value: /shared-volume
             # Optional: set restore point in time
-            # - name: SOURCE_LOG_STOP_DATETIME
-            #   value: "2026-03-28 19:00:00"
+            - name: SOURCE_LOG_STOP_DATETIME
+              value: "2026-03-30 19:40:00"
           volumeMounts:
             - name: mysql-credentials
               mountPath: /mysql-credentials

@@ -23,10 +23,12 @@ oc logs -f test-mysql-secondary-0 -c backup-mysql-bin
 
 Make sure to add a GCP service account key in Secret `gcp-credentials` first: `oc apply -f deploy-mysql/secret-gcp-credentials.yaml`
 
-Check if secondary loks good:
+Check if secondary looks good:
 ```
-oc rsh -c backup-mysql-bin --shell='/bin/bash' test-mysql-secondary-0
-mysql -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) <<<"SHOW DATABASES;"
+oc rsh -c mysql --shell='/bin/bash' test-mysql-secondary-0
+mysql -u root -p$(cat $MYSQL_MASTER_ROOT_PASSWORD_FILE) --vertical <<<"SHOW REPLICA STATUS;"
+mysql -u root -p$(cat $MYSQL_MASTER_ROOT_PASSWORD_FILE) <<<"SHOW DATABASES;"
+mysql -u root -p$(cat $MYSQL_MASTER_ROOT_PASSWORD_FILE) db1 <<<"SELECT COUNT(*) from messages;"
 ```
 
 ### Backup CronJob
