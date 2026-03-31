@@ -53,3 +53,9 @@ Create a job that loads a MySQL dump and related bin files. Set env vars in Job:
 ```
 oc apply -f deploy-mysql/job-restore.yaml
 ```
+
+<!-- 
+Data load 1GB ~ 3mins, but 5th GB was 15mins
+mysqldump 5GB ~ 2mins
+mysqldump restore 5GB ~ 15min
+-->

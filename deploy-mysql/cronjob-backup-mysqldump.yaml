@@ -34,7 +34,7 @@ spec:
                   # Backup non-system databases
                   DATABASES=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SHOW DATABASES WHERE \`Database\` NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys');")
                   echo DATABASES: $DATABASES
-                  mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --set-gtid-purged=OFF --routines --events --databases $DATABASES | gzip > $MYSQL_DUMP_DIR/mysqldump-$(date +%Y%m%d%H%M%S).sql.gz 
+                  time mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --set-gtid-purged=OFF --routines --events --databases $DATABASES | gzip > $MYSQL_DUMP_DIR/mysqldump-$(date +%Y%m%d%H%M%S).sql.gz 
                   
                   # Move to upload directory
                   mv /tmp/$SERVER_UUID $SHARED_VOLUME/ 
@@ -68,7 +68,7 @@ spec:
                   [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
                   
                   # Upload files to bucket
-                  gcloud storage rsync -r $SHARED_VOLUME $BUCKET_PATH
+                  time gcloud storage rsync -r $SHARED_VOLUME $BUCKET_PATH
               env:
                 - name: CLOUDSDK_CONFIG
                   # Needs to be a writable directory

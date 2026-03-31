@@ -16,7 +16,7 @@ spec:
           image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
           command:
             - /bin/bash
-            - -xc
+            - -c
             - |
               set -eo pipefail
               # Create a file to indicate any error to other container
@@ -75,7 +75,7 @@ spec:
               # value: "my-gcp-project"
               value: "rhpds-345620"
             - name: MYSQL_DUMP_BUCKET_URL
-              value: "gs://my-bucket-n9dps/mysql-test/1d151734-2c6e-11f1-ac52-0a580a83000d/mysql-dump/mysqldump-20260330193000.sql.gz"
+              value: "gs://my-bucket-n9dps/mysql-test/c13b370a-2d39-11f1-b5be-0a580a810239/mysql-dump/mysqldump-20260331202704.sql.gz"
             - name: SHARED_VOLUME
               value: /shared-volume
           volumeMounts:
@@ -104,7 +104,7 @@ spec:
               if [[ $dump_file == *.gz ]]; then
                 gzip -d --stdout $dump_file | mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE)
               else
-                mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) < $dump_file
+                time mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) < $dump_file
               fi
               echo "Databases after loading mysql dump file:" $(mysql -sN -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) <<< "SHOW DATABASES;")
               
@@ -116,6 +116,7 @@ spec:
               
               # Load mysql bin files, optianally until $SOURCE_LOG_STOP_DATETIME
               source $SHARED_VOLUME/mysql-dump/source_log.env
+              # TODO: Uncompress .gz bin files
               bin_files=($(find $SHARED_VOLUME/mysql-bin -type f | sort))
               echo -n "Loading bin files${SOURCE_LOG_STOP_DATETIME:+ (until time $SOURCE_LOG_STOP_DATETIME)}: "; printf '%s ' "${bin_files[@]}"; echo
               mysqlbinlog --no-defaults ${bin_files[@]} --start-position $SOURCE_LOG_POS ${SOURCE_LOG_STOP_DATETIME:+--stop-datetime "$SOURCE_LOG_STOP_DATETIME"} \
@@ -131,8 +132,8 @@ spec:
             - name: SHARED_VOLUME
               value: /shared-volume
             # Optional: set restore point in time
-            - name: SOURCE_LOG_STOP_DATETIME
-              value: "2026-03-30 19:40:00"
+            # - name: SOURCE_LOG_STOP_DATETIME
+            #   value: "2026-03-30 19:40:00"
           volumeMounts:
             - name: mysql-credentials
               mountPath: /mysql-credentials

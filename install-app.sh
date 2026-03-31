@@ -6,4 +6,4 @@ oc delete -n app -f deploy-app/job-mysql-insert.yaml; oc create -n app -f deploy
 oc wait -n app --for=jsonpath='{.status.ready}'=1 job/mysql-insert
 oc logs -n app -f job/mysql-insert
 
-# oc delete -f deploy-app/job-mysql-insert.yaml
+# oc delete -n app -f deploy-app/job-mysql-insert.yaml

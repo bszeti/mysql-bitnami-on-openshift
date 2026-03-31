@@ -1,4 +1,4 @@
-# Kubernetes Job to restore databases from backup
+# Kubernetes Job to run app inserting rows into a MySQL database
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -13,8 +13,7 @@ spec:
     spec:
       restartPolicy: Never
       containers:
-        # Container to download backup from bucket
-        - name: download
+        - name: main
           image: registry.redhat.io/ubi9/python-312:latest
           command:
             - /bin/bash

@@ -1,0 +1,82 @@
+# Kubernetes Job to load GBs of data into a MySQL database
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: load-data
+spec:
+  # Don't retry new Pod on failure
+  backoffLimit: 0
+  activeDeadlineSeconds: 14400 # Job deadline 4 hours
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: main
+          image: quay.io/bszeti/mysql:9.6
+          command:
+            - /bin/bash
+            - -c
+            - |
+              mysql -h $DB_HOST -u $DB_USERNAME -p$DB_PASSWORD $DB_NAME <<<"
+                  -- DROP TABLE IF EXISTS data;
+                  CREATE TABLE IF NOT EXISTS data (
+                      id INT AUTO_INCREMENT PRIMARY KEY,
+                      filler1 CHAR(255), filler2 CHAR(255), filler3 CHAR(255), filler4 CHAR(255)
+                  );
+                  "
+              for i in $(seq 1 $DATA_SIZE_GB); do
+                echo "Loading data bunch $i"
+                time mysql -h $DB_HOST -u $DB_USERNAME -p$DB_PASSWORD $DB_NAME <<<"
+                  -- Disable foreign key checks and autocommit to speed up the process
+                  SET foreign_key_checks = 0;
+                  SET unique_checks = 0;
+                  SET autocommit = 0;
+
+                  INSERT INTO data (filler1, filler2, filler3, filler4)
+                  WITH RECURSIVE 
+                  cte1 AS (
+                      SELECT 1 AS n
+                      UNION ALL
+                      SELECT n + 1 FROM cte1 WHERE n < 1000 -- Recursive query aborted after 1001 iterations. Try increasing @@cte_max_recursion_depth to a larger value.
+                  )
+                  SELECT REPEAT('A', 255), REPEAT('B', 255), REPEAT('C', 255), REPEAT('D', 255)
+                  FROM cte1
+                  -- Joins mutiply line count by 1000 (5x5x5x8)
+                  JOIN (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) AS t1
+                  JOIN (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) AS t2
+                  JOIN (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5) AS t3
+                  JOIN (SELECT 1 UNION ALL SELECT 2 UNION ALL SELECT 3 UNION ALL SELECT 4 UNION ALL SELECT 5 UNION ALL SELECT 6 UNION ALL SELECT 7 UNION ALL SELECT 8) AS t4
+                  ;
+
+                  COMMIT;
+
+                  SET foreign_key_checks = 1;
+                  SET unique_checks = 1;
+                  SET autocommit = 1;
+
+                  SELECT COUNT(*) FROM data;
+                  SELECT 
+                      table_schema AS 'Database', 
+                      ROUND(SUM(data_length + index_length) / 1024 / 1024 / 1024, 2) AS 'Size (GB)'
+                  FROM information_schema.TABLES 
+                  WHERE table_schema = DATABASE();
+                  "
+              done
+
+          env:
+            - name: DB_HOST
+              value: test-mysql-primary.mysql.svc
+            - name: DB_USERNAME
+              value: myuser
+            - name: DB_PASSWORD
+              value: mysecret
+            - name: DB_NAME
+              value: db1
+            - name: DATA_SIZE_GB
+              value: "5"
+            
+      # volumes:
+      #   - name: app
+      #     configMap:
+      #       name: app
+        
