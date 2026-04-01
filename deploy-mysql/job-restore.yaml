@@ -48,14 +48,13 @@ spec:
 
               # Download mysql bin files required for restore (from given bucket or relative to dump path)
               MYSQL_BIN_BUCKET_PATH=${MYSQL_BIN_BUCKET_PATH:=${MYSQL_DUMP_BUCKET_URL%/*/*}/mysql-bin}
-              bin_files_in_bucket=$(gcloud storage ls "$MYSQL_BIN_BUCKET_PATH/*")
-              echo Bin files in bucket: $bin_files_in_bucket
-              bin_files_min_index=$((10#${SOURCE_LOG_FILE##*.}))
-              echo "Bin files min index: $bin_files_min_index"
+              bin_files_in_bucket=$(gcloud storage ls "$MYSQL_BIN_BUCKET_PATH/*"); echo Bin files in bucket: $bin_files_in_bucket
+              bin_files_min_index=$((10#${SOURCE_LOG_FILE##*.})); echo "Bin files min index: $bin_files_min_index"
               bin_files_required=()
               for binfile in $bin_files_in_bucket; do
-                # Extract the extension, remove leading zeros 
-                index=$((10#${binfile##*.}))
+                # Extract the extension (.gz optioanl), remove leading zeros
+                filename=$(basename $binfile .gz)
+                index=$((10#${filename##*.}))
                 if (( index >= bin_files_min_index )); then
                   bin_files_required+=("$binfile")
                 fi
@@ -65,6 +64,8 @@ spec:
               DOWNLOAD_DIR_BIN=/tmp/mysql-bin
               mkdir -p $DOWNLOAD_DIR_BIN
               gcloud storage cp ${bin_files_required[*]} $DOWNLOAD_DIR_BIN
+              gzip -d $DOWNLOAD_DIR_BIN/*.gz
+
               # Copy bin files to be processed by mysql container
               mv $DOWNLOAD_DIR_BIN $SHARED_VOLUME
           env:
@@ -75,7 +76,7 @@ spec:
               # value: "my-gcp-project"
               value: "rhpds-345620"
             - name: MYSQL_DUMP_BUCKET_URL
-              value: "gs://my-bucket-n9dps/mysql-test/c13b370a-2d39-11f1-b5be-0a580a810239/mysql-dump/mysqldump-20260331202704.sql.gz"
+              value: "gs://my-bucket-n9dps/mysql-test/89e5b788-2dcc-11f1-a62c-0a580a83001a/mysql-dump/mysqldump-20260401132001.sql.gz"
             - name: SHARED_VOLUME
               value: /shared-volume
           volumeMounts:
@@ -102,7 +103,7 @@ spec:
               dump_file=$(find $SHARED_VOLUME/mysql-dump -type f -name "*.sql*")
               echo "Loading dump file: $dump_file"
               if [[ $dump_file == *.gz ]]; then
-                gzip -d --stdout $dump_file | mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE)
+                time (gzip -d --stdout $dump_file | mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE))
               else
                 time mysql -h $MYSQL_SERVICE -u root -p$(cat $MYSQL_ROOT_PASSWORD_FILE) < $dump_file
               fi
@@ -116,7 +117,6 @@ spec:
               
               # Load mysql bin files, optianally until $SOURCE_LOG_STOP_DATETIME
               source $SHARED_VOLUME/mysql-dump/source_log.env
-              # TODO: Uncompress .gz bin files
               bin_files=($(find $SHARED_VOLUME/mysql-bin -type f | sort))
               echo -n "Loading bin files${SOURCE_LOG_STOP_DATETIME:+ (until time $SOURCE_LOG_STOP_DATETIME)}: "; printf '%s ' "${bin_files[@]}"; echo
               mysqlbinlog --no-defaults ${bin_files[@]} --start-position $SOURCE_LOG_POS ${SOURCE_LOG_STOP_DATETIME:+--stop-datetime "$SOURCE_LOG_STOP_DATETIME"} \
@@ -127,13 +127,14 @@ spec:
           env:
             - name: MYSQL_SERVICE
               value: restore-mysql-primary.mysql.svc
+              # value: test-mysql-primary.mysql.svc
             - name: MYSQL_ROOT_PASSWORD_FILE
               value: /mysql-credentials/mysql-root-password
             - name: SHARED_VOLUME
               value: /shared-volume
             # Optional: set restore point in time
-            # - name: SOURCE_LOG_STOP_DATETIME
-            #   value: "2026-03-30 19:40:00"
+            - name: SOURCE_LOG_STOP_DATETIME
+              value: "2026-04-01 13:30:00"
           volumeMounts:
             - name: mysql-credentials
               mountPath: /mysql-credentials

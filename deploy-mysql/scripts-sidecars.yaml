@@ -32,7 +32,10 @@ data:
         for file in $BIN_FILES; do
           # Uploading file to bucket if it's not there yet
           if ! echo $BIN_FILES_IN_BUCKET | grep -qw "$file"; then
-            gcloud storage cp $file $BUCKET_PATH_SERVER/mysql-bin/
+            # Compress and upload
+            gzip -c $file >/tmp/$file.gz
+            gcloud storage cp /tmp/$file.gz $BUCKET_PATH_SERVER/mysql-bin/
+            rm -f /tmp/$file.gz
           fi
         done
 

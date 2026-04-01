@@ -33,7 +33,7 @@ spec:
             - name: BATCH_SIZE
               value: "100"
             - name: BATCH_COUNT
-              value: "600"
+              value: "1200"
             - name: SLEEP_MS
               value: "1000"
             - name: MESSAGE_LENGTH

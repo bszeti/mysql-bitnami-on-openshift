@@ -5,7 +5,7 @@
 oc apply -f deploy-mysql/scripts-sidecars.yaml
 
 # Install MySQL with bin backup sidecars
-helm upgrade -i test --wait --timeout=5m oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-sidecar.yaml
+helm upgrade -i test --wait --timeout=5m oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-backup.yaml
 
 # Create CronJob for mysqldump backups
 oc apply -f deploy-mysql/cronjob-backup-mysqldump.yaml
@@ -17,4 +17,4 @@ oc logs -f -c upload $jobname
 
 # # Uninstall
 # helm uninstall -n mysql test
-# oc delete -f deploy-mysql/cronjob-backup.yaml
+# oc delete -f deploy-mysql/cronjob-backup-mysqldump.yaml

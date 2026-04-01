@@ -62,7 +62,7 @@ spec:
                   gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json --project=$GCP_PROJECT_ID
 
                   while [ -z "$(ls -A $SHARED_VOLUME)" ]; do
-                    echo "Waiting for upload files to be created"
+                    echo "Waiting for mysql dump file to be created"
                     sleep 5
                   done
                   [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
