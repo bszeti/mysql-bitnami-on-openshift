@@ -27,29 +27,28 @@ spec:
 
                   # Get server-uuid
                   SERVER_UUID=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SELECT @@global.server_uuid;")
-                  MYSQL_DUMP_DIR=/tmp/$SERVER_UUID/mysql-dump
-                  mkdir -p $MYSQL_DUMP_DIR
-                  echo "MYSQL_DUMP_DIR:" $MYSQL_DUMP_DIR
+                  MYSQL_DUMP_DIR=$SHARED_VOLUME/tmp/$SERVER_UUID/mysql-dump
+                  mkdir -p $MYSQL_DUMP_DIR && echo "MYSQL_DUMP_DIR:" $MYSQL_DUMP_DIR
 
                   # Backup non-system databases
                   DATABASES=$(mysql -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) -sN -e "SHOW DATABASES WHERE \`Database\` NOT IN ('mysql', 'performance_schema', 'information_schema', 'sys');")
                   echo DATABASES: $DATABASES
                   time mysqldump -h $MYSQL_SERVICE -uroot -p$(cat $MYSQL_ROOT_PASSWORD_FILE) --single-transaction --source-data=2 --flush-logs --set-gtid-purged=OFF --routines --events --databases $DATABASES | gzip > $MYSQL_DUMP_DIR/mysqldump-$(date +%Y%m%d%H%M%S).sql.gz 
                   
-                  # Move to upload directory
-                  mv /tmp/$SERVER_UUID $SHARED_VOLUME/ 
+                  # Rename directory, so other container uploads
+                  mv $SHARED_VOLUME/tmp $SHARED_VOLUME/upload
               env:
                 - name: MYSQL_ROOT_PASSWORD_FILE
                   value: /mysql-credentials/mysql-root-password
                 - name: MYSQL_SERVICE
                   value: test-mysql-secondary
                 - name: SHARED_VOLUME
-                  value: /backup/upload
+                  value: /shared-volume
               volumeMounts:
                 - name: mysql-credentials
                   mountPath: /mysql-credentials
                 - name: shared-volume
-                  mountPath: /backup/upload
+                  mountPath: /shared-volume
                  
             - name: upload
               image: gcr.io/google.com/cloudsdktool/google-cloud-cli:stable
@@ -57,18 +56,18 @@ spec:
                 - /bin/bash
                 - -c
                 - |
-                  set -eo pipefail
+                  set -e
                   echo "Starting upload container"
                   gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json --project=$GCP_PROJECT_ID
 
-                  while [ -z "$(ls -A $SHARED_VOLUME)" ]; do
+                  until [ -d "$SHARED_VOLUME/upload" ]; do
                     echo "Waiting for mysql dump file to be created"
                     sleep 5
+                    [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 1
                   done
-                  [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
                   
                   # Upload files to bucket
-                  time gcloud storage rsync -r $SHARED_VOLUME $BUCKET_PATH
+                  time gcloud storage rsync -r $SHARED_VOLUME/upload $BUCKET_PATH
               env:
                 - name: CLOUDSDK_CONFIG
                   # Needs to be a writable directory
@@ -78,12 +77,12 @@ spec:
                 - name: BUCKET_PATH
                   value: "gs://my-bucket-n9dps/mysql-test"  
                 - name: SHARED_VOLUME
-                  value: /backup/upload
+                  value: /shared-volume
               volumeMounts:
                 - name: gcp-credentials
                   mountPath: /gcp-credentials             
                 - name: shared-volume
-                  mountPath: /backup/upload    
+                  mountPath: /shared-volume
                      
           volumes:
             - name: mysql-credentials

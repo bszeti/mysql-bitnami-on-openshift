@@ -10,10 +10,10 @@ helm upgrade -i test --wait --timeout=5m oci://registry-1.docker.io/bitnamichart
 # Create CronJob for mysqldump backups
 oc apply -f deploy-mysql/cronjob-backup-mysqldump.yaml
 # Force run
-jobname=$(oc create job manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump)
-oc wait --for=jsonpath='{.status.ready}'=1 $jobname
-oc logs -f -c mysqldump $jobname
-oc logs -f -c upload $jobname
+job=$(oc create job -oname manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump)
+oc wait --for=jsonpath='{.status.ready}'=1 $job
+oc logs -f -c mysqldump $job
+oc logs -f -c upload $job
 
 # # Uninstall
 # helm uninstall -n mysql test

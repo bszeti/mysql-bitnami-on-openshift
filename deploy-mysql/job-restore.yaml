@@ -24,10 +24,10 @@ spec:
 
               echo "Downloading backup from bucket"
               # Download mysql dump
-              DOWNLOAD_DIR_DUMP=/tmp/mysql-dump/
+              DOWNLOAD_DIR_DUMP=$SHARED_VOLUME/tmp/mysql-dump
               mkdir -p $DOWNLOAD_DIR_DUMP
               gcloud auth activate-service-account --key-file=/gcp-credentials/sa.json
-              gcloud storage cp $MYSQL_DUMP_BUCKET_URL $DOWNLOAD_DIR_DUMP
+              gcloud storage cp $MYSQL_DUMP_BUCKET_URL $DOWNLOAD_DIR_DUMP/
               
               # Find SOURCE_LOG_FILE and SOURCE_LOG_POS in mysqldump. Stop at first match
               change_replication_line=$(gzip -d --stdout $DOWNLOAD_DIR_DUMP/$(basename $MYSQL_DUMP_BUCKET_URL) | grep -m 1 "CHANGE REPLICATION SOURCE TO" || true)
@@ -61,7 +61,7 @@ spec:
               done
               echo -n "Bin files required:"; printf '%s ' "${bin_files_required[@]}"; echo
 
-              DOWNLOAD_DIR_BIN=/tmp/mysql-bin
+              DOWNLOAD_DIR_BIN=$SHARED_VOLUME/tmp/mysql-bin
               mkdir -p $DOWNLOAD_DIR_BIN
               gcloud storage cp ${bin_files_required[*]} $DOWNLOAD_DIR_BIN
               gzip -d $DOWNLOAD_DIR_BIN/*.gz
@@ -112,7 +112,7 @@ spec:
               echo "Waiting for mysql bin files..."
               until [ -d "$SHARED_VOLUME/mysql-bin" ]; do
                   sleep 5
-                  [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 0
+                  [[ -f $SHARED_VOLUME/terminated ]] && echo "Terminated by other container" && exit 1
               done
               
               # Load mysql bin files, optianally until $SOURCE_LOG_STOP_DATETIME
