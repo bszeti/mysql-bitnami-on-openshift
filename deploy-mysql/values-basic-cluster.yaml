@@ -15,7 +15,7 @@ image:
   registry: quay.io
   repository: bszeti/mysql
   tag: '9.6'
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 primary:
   pdb:
     create: false
@@ -31,7 +31,7 @@ primary:
       memory: 1Gi
     requests:
       cpu: 200m
-      memory: 500Mi 
+      memory: 1Gi
   configuration: |-
     [mysqld]
     authentication_policy='{{- .Values.auth.authenticationPolicy | default "* ,," }}'
@@ -111,7 +111,24 @@ secondary:
       memory: 1Gi
     requests:
       cpu: 200m
-      memory: 500Mi 
+      memory: 1Gi
+  customLivenessProbe:
+    exec:
+      command:
+        - /bin/bash
+        - -ec
+        - |
+          set -eo pipefail
+          password_aux="${MYSQL_ROOT_PASSWORD:-}"
+          if [[ -f "${MYSQL_MASTER_ROOT_PASSWORD_FILE:-}" ]]; then
+              password_aux=$(cat "$MYSQL_MASTER_ROOT_PASSWORD_FILE")
+          fi
+          mysqladmin status -uroot -p"${password_aux}"
+          replica_status=$(mysql -u root -p"${password_aux}" --vertical <<<"SHOW REPLICA STATUS;" | grep -E '(Replica_IO_Running: (Yes|Connecting))|(Replica_SQL_Running: Yes)')
+          if [[ $(echo "$replica_status" | wc -l) -ne 2 ]]; then
+            echo "Replica is not running. Status:" $replica_status
+            exit 1
+          fi
   configuration: |-
     [mysqld]
     authentication_policy='{{- .Values.auth.authenticationPolicy | default "* ,," }}'

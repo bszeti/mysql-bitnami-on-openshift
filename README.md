@@ -19,6 +19,7 @@ See `deploy-mysql/values-basic-cluster.yaml` for a primary-secondary (read only 
 A few changes were required to make it work with MySQL v9.6:
 - The line `character-set-server=UTF` in the default `values.yaml` causes an error, must use `UTF8MB4` or skip that line in `configuration`.
 - The `initdbScripts` doesn't work with `.sql` files, must use a `.sh` script for custom init scripts
+- In case of connection issues the secondary node only reconnects for 10x10sec before giving up. This stops the replication, but not the instance. A custom `livenessProbe` is added to force restart if replication status in not OK.
 
 
 ## Deploy with backup
