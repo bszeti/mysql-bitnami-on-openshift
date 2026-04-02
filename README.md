@@ -84,7 +84,7 @@ A restore must be done in a brand new MySQL deployment. It has two main steps:
 
 The solution also supports Point In Time Recoery up to a given timestamp.
 
-Deploy an empty MySQL instance (with the backup sidecars). This will have a new server UUID.
+Deploy an empty MySQL instance (with the backup sidecars) without any init scripts. This will have a new server UUID.
 ```
 helm upgrade -i restore oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-restore.yaml
 ```
@@ -111,8 +111,8 @@ During the restore process apps should not connect to this database instance of 
 
 See `install-mysql-restore.sh` script to deploy (in a new namespace).
 
-<!-- 
-Data load 1GB ~ 3mins, but 5th GB was 15mins
-mysqldump 5GB ~ 2mins
-mysqldump restore 5GB ~ 15min
--->
+## Additional
+
+See two simple scripts to insert data into MySQL:
+- `deploy-app`: Job with a Python script to periodically insert data into a `message` table. It's useful to test Point In Time Recovery for example.
+- `load-data`: Job to generate GBs of data in a `data` table. Could be used to test backup/restore time for larger databases.
