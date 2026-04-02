@@ -1,20 +1,27 @@
+# MySQL instance name. Also update MYSQL_SERVICE in deploy-mysql/job-restore.yaml and deploy-mysql/cronjob-backup-mysqldump.yaml
+INSTANCE=test
+NAMESPACE=mysql
+
+# Create namespace 
+# oc new-project $NAMESPACE
+
 # Secret for GCP credentials
-# oc apply -f deploy-mysql/secret-gcp-credentials.yaml
+# oc apply -n $NAMESPACE -f deploy-mysql/secret-gcp-credentials.yaml
 
 # ConfigMap with scripts used in secondary node sidecars
-oc apply -f deploy-mysql/scripts-sidecars.yaml
+oc apply -n $NAMESPACE -f deploy-mysql/scripts-sidecars.yaml
 
 # Install MySQL with bin backup sidecars
-helm upgrade -i test --wait --timeout=5m oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-backup.yaml
+helm upgrade -i -n $NAMESPACE --wait --timeout=5m $INSTANCE oci://registry-1.docker.io/bitnamicharts/mysql -f deploy-mysql/values-backup.yaml
 
 # Create CronJob for mysqldump backups
-oc apply -f deploy-mysql/cronjob-backup-mysqldump.yaml
+oc apply -n $NAMESPACE -f deploy-mysql/cronjob-backup-mysqldump.yaml
 # Force run
-job=$(oc create job -oname manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump)
-oc wait --for=jsonpath='{.status.ready}'=1 $job
-oc logs -f -c mysqldump $job
-oc logs -f -c upload $job
+job=$(oc create job -n $NAMESPACE -oname manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump)
+oc wait -n $NAMESPACE --for=jsonpath='{.status.ready}'=1 $job
+oc logs -n $NAMESPACE -f -c mysqldump $job
+oc logs -n $NAMESPACE -f -c upload $job
 
 # # Uninstall
-# helm uninstall -n mysql test
-# oc delete -f deploy-mysql/cronjob-backup-mysqldump.yaml
+# helm uninstall -n $NAMESPACE $INSTANCE
+# oc delete -n $NAMESPACE -f deploy-mysql/cronjob-backup-mysqldump.yaml

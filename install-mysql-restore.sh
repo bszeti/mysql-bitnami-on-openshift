@@ -1,8 +1,8 @@
-# MySQL instance name. Also update MYSQL_SERVICE in deploy-mysql/job-restore.yaml
+# MySQL instance name. Also update MYSQL_SERVICE in deploy-mysql/job-restore.yaml and deploy-mysql/cronjob-backup-mysqldump.yaml
 INSTANCE=test
 NAMESPACE=mysql-restore
 
-# Create namespace 
+# Create namespace
 # oc new-project $NAMESPACE
 
 # Secret for GCP credentials
@@ -34,11 +34,11 @@ oc exec -n $NAMESPACE -c mysql $INSTANCE-mysql-secondary-0 -- /bin/bash -c 'mysq
 # Create CronJob for mysqldump backups for restored database
 oc apply -n $NAMESPACE -f deploy-mysql/cronjob-backup-mysqldump.yaml
 # Force run
-job=$(oc create job -oname manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump)
-oc wait --for=jsonpath='{.status.ready}'=1 $job
-oc logs -f -c mysqldump $job
-oc logs -f -c upload $job
+job=$(oc create job -n $NAMESPACE -oname manual-backup-mysqldump-$(date +%Y%m%d%H%M%S) --from=cronjob/backup-mysqldump)
+oc wait -n $NAMESPACE --for=jsonpath='{.status.ready}'=1 $job
+oc logs -n $NAMESPACE -f -c mysqldump $job
+oc logs -n $NAMESPACE -f -c upload $job
 
 # Uninstall
-# helm uninstall -n $NAMESPACE test
+# helm uninstall -n $NAMESPACE $INSTANCE
 # oc delete -n $NAMESPACE -f deploy-mysql/cronjob-backup-mysqldump.yaml
