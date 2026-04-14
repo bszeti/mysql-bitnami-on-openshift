@@ -16,7 +16,6 @@ spec:
         pre:
           - exec:
               command:
-                #cd /tmp && nohup mysql -uroot -p"$(cat ${MYSQL_ROOT_PASSWORD_FILE:-$MYSQL_MASTER_ROOT_PASSWORD_FILE})" -e "FLUSH TABLES WITH READ LOCK; DO SLEEP(120);" & 
                 - /bin/bash
                 - '-c'
                 - |
@@ -42,8 +41,8 @@ spec:
                   rm -f /tmp/mysql_lock.pid
   includedNamespaces:
     - mysql
-  # orderedResources:
-  #   pods: "mysql/test-mysql-secondary-0,mysql/test-mysql-primary-0"
+  orderedResources:
+    pods: "mysql/test-mysql-secondary-0,mysql/test-mysql-primary-0"
   # excludedResources:
   #   - secrets
   snapshotMoveData: false
