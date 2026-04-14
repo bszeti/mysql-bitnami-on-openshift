@@ -1,0 +1,26 @@
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: gcp-mysql
+spec:
+  backupLocations:
+    - velero:
+        credential:
+          key: sa.json
+          name: gcp-credentials
+        default: true
+        objectStorage:
+          bucket: my-bucket-n9dps
+          prefix: mysql-oadp
+        provider: gcp
+  configuration:
+    nodeAgent:
+      enable: true
+      uploaderType: kopia
+    velero:
+      defaultPlugins:
+        - openshift
+        - gcp
+        - csi
+      disableFsBackup: false
+  logFormat: text

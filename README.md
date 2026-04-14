@@ -28,7 +28,7 @@ The backup solution uses only the secondary node to make sure it's not affecting
 - A _CronJob_ taking `mysqldump` full dumps periodically (e.g. daily)
 - Sidecars copying binary log files from the `data` directory periodically (e.g. hourly)
 
-For a "Point In Time Recovery" you need both a full dump and binary logs afterwards. The backup files are stored `gzip` compressed.
+For a [Point In Time Recovery](https://medium.com/@nimishagarwal76/point-in-time-recovery-mysql-15ba57eccd9d) you need both a full dump and binary logs afterwards. The backup files are stored `gzip` compressed.
 
 See `install-mysql.sh` script to deploy.
 

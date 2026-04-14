@@ -1,0 +1,49 @@
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  generateName: test-
+spec:
+  defaultVolumesToFsBackup: false
+  csiSnapshotTimeout: 5m0s
+  ttl: 24h0m0s
+  itemOperationTimeout: 4h0m0s
+  storageLocation: mysql-oadp
+  hooks:
+    resources:
+      - includedNamespaces:
+          - mysql
+        name: backup-start
+        pre:
+          - exec:
+              command:
+                #cd /tmp && nohup mysql -uroot -p"$(cat ${MYSQL_ROOT_PASSWORD_FILE:-$MYSQL_MASTER_ROOT_PASSWORD_FILE})" -e "FLUSH TABLES WITH READ LOCK; DO SLEEP(120);" & 
+                - /bin/bash
+                - '-c'
+                - |
+                  date +%T
+                  echo pre-hook-log-start $(hostname)
+                  mysql -uroot -p"$(cat ${MYSQL_ROOT_PASSWORD_FILE:-$MYSQL_MASTER_ROOT_PASSWORD_FILE})" -e "FLUSH TABLES WITH READ LOCK; DO SLEEP(60);" >/dev/null 2>&1 & 
+                  echo $! > /tmp/mysql_lock.pid
+                  cat /tmp/mysql_lock.pid
+                  date +%T
+                  echo pre-hook-log-end $(hostname)
+              container: mysql
+              timeout: 120s
+        post:
+          - exec:
+              container: mysql
+              command:
+                - /bin/bash
+                - '-c'
+                - |
+                  echo post-hook-log $(hostname)
+                  ps -f $(cat /tmp/mysql_lock.pid)
+                  date +%T && kill $(cat /tmp/mysql_lock.pid)
+                  rm -f /tmp/mysql_lock.pid
+  includedNamespaces:
+    - mysql
+  # orderedResources:
+  #   pods: "mysql/test-mysql-secondary-0,mysql/test-mysql-primary-0"
+  # excludedResources:
+  #   - secrets
+  snapshotMoveData: false
