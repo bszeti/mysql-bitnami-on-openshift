@@ -22,7 +22,7 @@ A few changes were required to make it work with MySQL v9.6:
 - In case of connection issues the secondary node only reconnects for 10x10sec before giving up. This stops the replication, but not the instance. A custom `livenessProbe` is added to force restart if replication status in not OK.
 
 
-## Deploy with backup
+## Backup using MySQL specific tools
 
 The backup solution uses only the secondary node to make sure it's not affecting the primary node. It has two main components:
 - A _CronJob_ taking `mysqldump` full dumps periodically (e.g. daily)
@@ -33,7 +33,7 @@ For a [Point In Time Recovery](https://medium.com/@nimishagarwal76/point-in-time
 See `install-mysql.sh` script to deploy.
 
 
-### Backup CronJob form mysql dump
+### Backup CronJob for mysql dump
 Periodically runs `mysqldump` and uploads file to GCP Object Storage. Important env vars:
 - **MYSQL_SERVICE**: Service endpoint for secondary MySQL Pod
 - **BUCKET_PATH**: Target URL of directory in bucket. (`gs://my-bucket-n9dps/mysql-test`) 
@@ -112,8 +112,44 @@ During the restore process apps should not connect to this database instance of 
 
 See `install-mysql-restore.sh` script to deploy (in a new namespace).
 
+## Backup with OpenShift ADP
+
+The [backup-oadp](./backup-oadp) folder and related [install-oadp.sh](./install-oadp.sh) shows how to create a backup of our database with [Red Hat OpenShift APIs for Data Protection (OADP)](https://docs.redhat.com/en/documentation/openshift_container_platform/4.21/html/backup_and_restore/oadp-application-backup-and-restore) which is a generic Kubernetes native backup solution based on the [Velero](https://velero.io/) tool.
+
+This example uses [Google Cloud Object Storage](https://cloud.google.com/storage) to store K8s resources, while utilizes the cluster's CSI driver to create [VolumeSnapshots](https://kubernetes.io/docs/concepts/storage/volume-snapshots/) of the `PersistentVolumes`. See the `DataProtectionApplication` examples how to configure one or multiple backup locations.
+
+The [backup.yaml](backup-oadp/backup.yaml) creates snapshots of the PVs of both Pods. It's important to create a snapshot of the secondary instance first to avoid timeline issues after restore breaking the replication. The order is set in `orderedResources.pods` field. If the order is `secondary` then `primary`, the replication status should look OK after restoring.
+
+With the tested [OADP version](https://github.com/openshift/oadp-operator#velero-version-relationship) (`v1.5` on OpenShift `v4.21`) we noticed that the restored `VolumeSnapshot` resources are kept in the namespace after the related `PersistentVolumes` are restored. This is confusing when we're trying to make backups again of the restored namespace, and it's recommended to delete them once we verified that the restore was successful (e.g. the Pods reached `Ready`). Deleting the `VolumeSnapshot` won't remove the actual snapshot in the backend, those are only removed when the `Backup` expires.
+
+See [restore.yaml](backup-oadp/restore.yaml) how to restore an existing `Backup`. Set `namespaceMapping` to restore in another namespace.
+
+Notes and Known Issues:
+- A backup pre-hook is required to run `FLUSH TABLES WITH READ LOCK` before taking a snapshot to guarantee database level file consistency. This `mysql` session must be running after the hook is completed, otherwise the lock transaction status will be aborted. In this example we assume 60sec is enough for the CSI driver to create a snapshot and for OADP to kill the locking process in the post-hook. Any write operations from the apps are blocked during this timeframe.
+- The backup pre-hook running the lock must be put in background, which results a zombie `mysql` process in the Pod once it's terminated.
+- Deleting the backups manually (in Object Storage) doesn't remove the related snapshots - as that info was stored there. Meanwhile it's done properly when the `Backup` expires (checked every 1 hour by default).
+- The `VolumeSnapshots` (and related `VolumeSnapshotContents`) are left in the namespace after Restore. Delete them before taking a next Backup, otherwise they start piling up.
+
 ## Additional
 
 See two simple scripts to insert data into MySQL:
 - `deploy-app`: Job with a Python script to periodically insert data into a `message` table. It's useful to test Point In Time Recovery for example.
 - `load-data`: Job to generate GBs of data in a `data` table. Could be used to test backup/restore time for larger databases.
+
+### Test app inserting rows
+
+A simple Python test app can be found in [deploy-app](./deploy-app) folder, see [install-app.sh](./install-app.sh) to run it as a Kubernetes job. This app is useful to generate ongoing traffic meanwhile taking a backup and see what was included.
+
+Main env vars:
+- **MESSAGE_LENGTH**: Length of string to insert into a table row
+- **BATCH_SIZE**: Number of rows to insert in one batch (transaction)
+- **BATCH_COUNT**: Number of rounds, the Job is finished afterwards
+- **SLEEP_MS**: Sleep time between rounds
+
+### Load high volume of data
+
+This [Job](./load-data/job-load-data.yaml) and related [load-data.sh](./load-data.sh) can be used to generate multiple gigabytes of data in a table. This is useful to test backup of large databases.
+
+Main env vars:
+- **DATA_SIZE_GB**: How many GBs of data do we want inject into the database
+

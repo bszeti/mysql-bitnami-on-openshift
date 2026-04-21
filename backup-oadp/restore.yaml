@@ -1,0 +1,19 @@
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: test-j496s
+  namespace: openshift-adp
+spec:
+  backupName: test-j496s
+  includedNamespaces:
+    - mysql
+  # If we want to restore in a different namespace
+  namespaceMapping:
+    mysql: mysql-restore 
+  # We let the StatefulSets recreate the Pods
+  excludedResources:
+    - pods
+  restorePVs: true
+  # Enforce patching the existing resources instead of skipping
+  # existingResourcePolicy: update
+  itemOperationTimeout: 4h0m0s
